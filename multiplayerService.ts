@@ -12,8 +12,8 @@ import {
   addDoc,
   getDoc
 } from 'firebase/firestore';
-import { db, auth, handleFirestoreError, OperationType } from '../firebase';
-import { MultiplayerGame, Color } from '../types';
+import { db, auth, handleFirestoreError, OperationType } from './firebase';
+import { MultiplayerGame, Color } from './types';
 
 const GAMES_COLLECTION = 'games';
 
