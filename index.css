@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme {
+  --color-board-light: #e8d0a7; /* Warm creamy wood */
+  --color-board-dark: #5d4037;  /* Dark walnut brown */
+  --color-board-highlight: rgba(251, 191, 36, 0.45); /* Amber selection */
+  --color-board-last-move: rgba(250, 204, 21, 0.35); /* Yellow last move */
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: radial-gradient(circle at center, #0a2f2c 0%, #020a09 100%);
+}
+
+/* Chess Board Aesthetics */
+.chess-board-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  aspect-ratio: 1 / 1;
+  box-shadow: 
+    0 50px 100px -20px rgba(0, 0, 0, 0.9), 
+    0 0 40px rgba(0, 0, 0, 0.5),
+    inset 0 0 10px rgba(0,0,0,0.8);
+  border: 14px solid #4e342e; /* Thicker wood frame */
+  border-radius: 4px;
+  position: relative;
+  background-color: #3e2723;
+  outline: 2px solid rgba(0,0,0,0.5);
+}
+
+.square {
+  @apply relative flex items-center justify-center transition-all duration-300 overflow-hidden;
+  box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.3);
+}
+
+.square-light {
+  background-color: var(--color-board-light);
+  background-image: url('https://www.transparenttextures.com/patterns/wood-pattern.png');
+  background-blend-mode: multiply;
+}
+
+.square-dark {
+  background-color: var(--color-board-dark);
+  background-image: url('https://www.transparenttextures.com/patterns/wood-pattern.png');
+  background-blend-mode: multiply;
+}
+
+.square-last-move {
+  @apply ring-inset ring-8 ring-yellow-400/30;
+  background-color: var(--color-board-last-move);
+}
+
+.square-selected {
+  @apply ring-inset ring-4 ring-amber-500 shadow-[inset_0_0_30px_rgba(245,158,11,0.4)];
+}
+
+/* Piece Aesthetics */
+.chess-piece {
+  @apply w-[90%] h-[90%] p-1 select-none pointer-events-none transform transition-all duration-300 ease-out z-20;
+  filter: drop-shadow(0 6px 4px rgba(0, 0, 0, 0.4));
+}
+
+/* Metallic White pieces (Rose Gold/Copper) */
+.chess-piece[src*="/w"] {
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.5)) brightness(1.1) contrast(1.1) drop-shadow(0 0 2px rgba(255,255,255,0.2));
+}
+
+/* Metallic Black pieces (Gunmetal) */
+.chess-piece[src*="/b"] {
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.6)) brightness(0.4) contrast(1.5) grayscale(0.5);
+}
+
+.chess-piece.selected {
+  @apply scale-110 -translate-y-2;
+  filter: drop-shadow(0 15px 25px rgba(0, 0, 0, 0.6));
+}
+
+/* Move Hints */
+.move-hint {
+  @apply absolute w-5 h-5 rounded-full bg-emerald-500/40 backdrop-blur-sm z-10;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+}
+
+.capture-hint {
+  @apply absolute w-[85%] h-[85%] border-[6px] border-amber-500/30 rounded-full z-10;
+}
+
+/* Coordinates */
+.coord-label {
+  @apply absolute text-[10px] font-black font-sans uppercase select-none z-30;
+}
+
+.square-light .coord-label { @apply text-black/40; }
+.square-dark .coord-label { @apply text-white/40; }
+
+/* Board Bevel Effect */
+.board-container {
+  @apply p-2 sm:p-5 rounded-2xl shadow-[0_0_100px_rgba(0,0,0,0.6)] border border-white/5;
+  background: linear-gradient(135deg, #2d1b11 0%, #1a0f0a 100%);
+}
