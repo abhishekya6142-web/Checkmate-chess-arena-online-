@@ -1,14 +1,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Chess, Square } from 'chess.js';
-import GameInterface from './components/GameInterface';
-import Lobby from './components/Lobby';
+import GameInterface from './GameInterface';
+import Lobby from '.Lobby';
 import { GameMode, GameState, Color, AIAnalysis, MultiplayerGame, GameSettings } from './types';
 import { Trophy, Users, Cpu, RotateCcw, Search, Globe, LogIn, LogOut, User as UserIcon, Share2, Check, Settings, Play, Maximize, Minimize, Loader2 } from 'lucide-react';
-import { analyzeChessPosition, getAIMove } from './services/geminiService';
+import { analyzeChessPosition, getAIMove } from '.geminiService';
 import { auth } from './firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User } from 'firebase/auth';
-import { subscribeToGame, updateGameMove, joinGame } from './services/multiplayerService';
+import { subscribeToGame, updateGameMove, joinGame } from './multiplayerService';
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
 
 // Helper component to handle room parameter from URL
