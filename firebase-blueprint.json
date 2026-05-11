@@ -1,0 +1,31 @@
+{
+  "entities": {
+    "Game": {
+      "title": "Game",
+      "description": "A chess game session",
+      "type": "object",
+      "properties": {
+        "fen": { "type": "string", "description": "Current FEN string" },
+        "history": { "type": "array", "items": { "type": "string" }, "description": "Move history in SAN" },
+        "players": {
+          "type": "object",
+          "properties": {
+            "w": { "type": "string", "description": "UID of white player" },
+            "b": { "type": "string", "description": "UID of black player" }
+          }
+        },
+        "status": { "type": "string", "enum": ["waiting", "active", "finished"], "description": "Game status" },
+        "turn": { "type": "string", "enum": ["w", "b"], "description": "Current turn" },
+        "winner": { "type": "string", "description": "Winner UID or 'draw'" },
+        "lastMoveAt": { "type": "string", "format": "date-time", "description": "Timestamp of last move" }
+      },
+      "required": ["fen", "status", "turn"]
+    }
+  },
+  "firestore": {
+    "/games/{gameId}": {
+      "schema": "Game",
+      "description": "Active and finished chess games"
+    }
+  }
+}

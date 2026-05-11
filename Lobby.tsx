@@ -1,13 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { MultiplayerGame, GameSettings } from './types';
-import { getAvailableGames, createGame, joinGame } from './multiplayerService';
-import { auth } from './firebase';
+import { MultiplayerGame, GameSettings, AnonymousUser } from '../types';
+import { getAvailableGames, createGame, joinGame } from '../services/multiplayerService';
 import { Plus, Play, RefreshCw, User as UserIcon } from 'lucide-react';
 
 interface LobbyProps {
   onJoinGame: (gameId: string) => void;
-  user: any;
+  user: AnonymousUser | null;
   settings: GameSettings;
 }
 
@@ -18,7 +17,7 @@ const Lobby: React.FC<LobbyProps> = ({ onJoinGame, user, settings }) => {
 
   const fetchGames = async () => {
     setLoading(true);
-    const availableGames = await getAvailableGames();
+    const availableGames = await getAvailableGames(user?.uid);
     setGames(availableGames);
     setLoading(false);
   };
@@ -53,18 +52,9 @@ const Lobby: React.FC<LobbyProps> = ({ onJoinGame, user, settings }) => {
     <div className="w-full max-w-2xl mx-auto bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
       <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
         <div className="flex items-center gap-4">
-          {user?.photoURL ? (
-            <img 
-              src={user.photoURL} 
-              alt={user.displayName || 'User'} 
-              className="w-12 h-12 rounded-full border-2 border-amber-500/50 shadow-xl"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-amber-500 border-2 border-amber-500/50">
-              <UserIcon size={24} />
-            </div>
-          )}
+          <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-amber-500 border-2 border-amber-500/50 shadow-lg">
+            <UserIcon size={24} />
+          </div>
           <div>
             <h2 className="text-2xl font-bold text-amber-500">Multiplayer Lobby</h2>
             <p className="text-slate-400 text-sm">Welcome back, <span className="text-slate-200 font-medium">{user?.displayName || 'Grandmaster'}</span></p>

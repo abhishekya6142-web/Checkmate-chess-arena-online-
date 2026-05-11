@@ -1,4 +1,9 @@
 
+export interface AnonymousUser {
+  uid: string;
+  displayName: string;
+}
+
 export type Color = 'w' | 'b';
 export type PieceSymbol = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
 

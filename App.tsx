@@ -1,14 +1,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Chess, Square } from 'chess.js';
-import GameInterface from './GameInterface';
-import Lobby from './Lobby';
-import { GameMode, GameState, Color, AIAnalysis, MultiplayerGame, GameSettings } from './types';
-import { Trophy, Users, Cpu, RotateCcw, Search, Globe, LogIn, LogOut, User as UserIcon, Share2, Check, Settings, Play, Maximize, Minimize, Loader2 } from 'lucide-react';
-import { analyzeChessPosition, getAIMove } from './geminiService';
-import { auth } from './firebase';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User } from 'firebase/auth';
-import { subscribeToGame, updateGameMove, joinGame } from './multiplayerService';
+import GameInterface from './components/GameInterface';
+import Lobby from './components/Lobby';
+import { GameMode, GameState, Color, AIAnalysis, MultiplayerGame, GameSettings, AnonymousUser } from './types';
+import { Trophy, Users, Cpu, RotateCcw, Search, Globe, LogIn, LogOut, User as UserIcon, Share2, Check, Settings, Play, Maximize, Minimize, Loader2, UserPlus } from 'lucide-react';
+import { analyzeChessPosition, getAIMove } from './services/geminiService';
+import { db } from './firebase';
+import { subscribeToGame, updateGameMove, joinGame } from './services/multiplayerService';
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
 
 // Helper component to handle room parameter from URL
@@ -24,7 +23,9 @@ const RoomRedirect: React.FC<{ setMultiplayerGameId: (id: string) => void; setGa
 };
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AnonymousUser | null>(null);
+  const [isSettingUpName, setIsSettingUpName] = useState(false);
+  const [tempName, setTempName] = useState('');
   const [game, setGame] = useState(new Chess());
   const [gameMode, setGameMode] = useState<GameMode>(GameMode.VS_AI);
   const [multiplayerGameId, setMultiplayerGameId] = useState<string | null>(null);
@@ -32,7 +33,6 @@ const App: React.FC = () => {
   const [showShareTooltip, setShowShareTooltip] = useState(false);
   const [isConfiguring, setIsConfiguring] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [roomError, setRoomError] = useState<string | null>(null);
@@ -53,11 +53,30 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-    });
-    return () => unsubscribe();
+    const savedUid = localStorage.getItem('anonymous_uid');
+    const savedName = localStorage.getItem('player_name');
+    
+    if (savedUid && savedName) {
+      setUser({ uid: savedUid, displayName: savedName });
+    } else {
+      // If no ID, generate one but don't set user until they provide a name
+      if (!savedUid) {
+        const newUid = 'anon_' + Math.random().toString(36).substring(2, 11);
+        localStorage.setItem('anonymous_uid', newUid);
+      }
+      setIsSettingUpName(true);
+    }
   }, []);
+
+  const handleSetupName = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tempName.trim()) return;
+    
+    const uid = localStorage.getItem('anonymous_uid')!;
+    localStorage.setItem('player_name', tempName.trim());
+    setUser({ uid, displayName: tempName.trim() });
+    setIsSettingUpName(false);
+  };
 
   // Handle deep link room joining and state sync with URL
   useEffect(() => {
@@ -114,10 +133,10 @@ const App: React.FC = () => {
             inCheck: newGame.isCheck()
           });
         }
-      });
+      }, user?.uid || undefined);
       return () => unsubscribe();
     }
-  }, [gameMode, multiplayerGameId]);
+  }, [gameMode, multiplayerGameId, user?.uid]);
 
   const updateGameState = useCallback(() => {
     const newFen = game.fen();
@@ -144,10 +163,11 @@ const App: React.FC = () => {
         newFen, 
         newHistory.map(m => m.san || ''), 
         turn, 
-        winner
+        winner,
+        user?.uid
       );
     }
-  }, [game, gameMode, multiplayerGameId]);
+  }, [game, gameMode, multiplayerGameId, user?.uid]);
 
   const makeMove = (move: string | { from: string; to: string; promotion?: string }) => {
     if (gameMode === GameMode.VS_AI && game.turn() === 'b' && !isAiThinking) {
@@ -217,27 +237,6 @@ const App: React.FC = () => {
       triggerAi();
     }
   }, [gameState.turn, gameMode, gameState.isGameOver, game, gameSettings.aiDifficulty, isAiThinking, updateGameState]);
-
-  const login = async () => {
-    if (isLoggingIn) return;
-    setIsLoggingIn(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      if (error.code === 'auth/cancelled-popup-request') {
-        console.warn('Login popup was closed before completion.');
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        console.log('User closed the login popup.');
-      } else {
-        console.error('Login error:', error);
-      }
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  const logout = () => signOut(auth);
 
   const resetGame = (settings?: GameSettings) => {
     const activeSettings = settings || gameSettings;
@@ -396,44 +395,66 @@ const App: React.FC = () => {
               <div className="flex items-center gap-3 pl-2 border-l border-slate-800 ml-1">
                 <div className="flex flex-col items-end hidden sm:flex">
                   <span className="text-xs font-bold text-slate-200 leading-none">{user.displayName}</span>
-                  <span className="text-[10px] text-slate-500 leading-none mt-1">Player</span>
+                  <span className="text-[10px] text-slate-500 leading-none mt-1">Anonymous Player</span>
                 </div>
-                {user.photoURL ? (
-                  <img 
-                    src={user.photoURL} 
-                    alt={user.displayName || 'User'} 
-                    className="w-8 h-8 rounded-full border border-slate-700 shadow-lg"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-700">
-                    <UserIcon size={14} />
-                  </div>
-                )}
+                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-700 shadow-lg">
+                  <UserIcon size={14} />
+                </div>
                 <button 
-                  onClick={logout}
-                  className="p-2 rounded-md hover:bg-red-900/20 text-slate-400 hover:text-red-400 transition-all"
-                  title="Logout"
+                  onClick={() => setIsSettingUpName(true)}
+                  className="p-2 rounded-md hover:bg-slate-800 text-slate-400 hover:text-amber-500 transition-all"
+                  title="Change Name"
                 >
-                  <LogOut size={18} />
+                  <Settings size={18} />
                 </button>
               </div>
             ) : (
               <button 
-                onClick={login}
-                disabled={isLoggingIn}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all ${isLoggingIn ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'hover:bg-amber-600/20 text-amber-500'}`}
+                onClick={() => setIsSettingUpName(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-md transition-all hover:bg-amber-600/20 text-amber-500"
               >
-                {isLoggingIn ? (
-                  <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <LogIn size={18} />
-                )}
-                <span className="hidden sm:inline">{isLoggingIn ? 'Logging in...' : 'Login'}</span>
+                <UserIcon size={18} />
+                <span className="hidden sm:inline">Set Profile</span>
               </button>
             )}
           </div>
         </header>
+      )}
+
+      {isSettingUpName && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-6">
+          <form 
+            onSubmit={handleSetupName}
+            className="bg-slate-900 border border-slate-800 p-8 rounded-3xl max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200"
+          >
+            <div className="w-16 h-16 bg-amber-600/10 rounded-full flex items-center justify-center mx-auto mb-6">
+              <UserPlus className="text-amber-500 w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2 text-center">Your Profile</h2>
+            <p className="text-slate-400 mb-6 text-center text-sm">Enter a display name to join the Checkmate Arena.</p>
+            
+            <div className="mb-6">
+              <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest">Display Name</label>
+              <input 
+                autoFocus
+                type="text" 
+                value={tempName}
+                onChange={(e) => setTempName(e.target.value)}
+                placeholder="e.g. Grandmaster Chess"
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 focus:outline-none focus:border-amber-500 transition-all text-slate-100"
+                maxLength={20}
+                required
+              />
+            </div>
+            
+            <button 
+              type="submit"
+              className="w-full bg-amber-600 hover:bg-amber-500 py-3 rounded-xl font-bold transition-all shadow-lg shadow-amber-600/20"
+            >
+              Start Playing
+            </button>
+          </form>
+        </div>
       )}
 
       <main className={`w-full transition-all duration-500 ${isFullscreen ? 'max-w-none h-screen flex flex-col items-center justify-center bg-slate-950' : 'max-w-6xl'}`}>
@@ -447,43 +468,16 @@ const App: React.FC = () => {
           </button>
         )}
         {gameMode === GameMode.MULTIPLAYER && !multiplayerGameId ? (
-          user ? (
-            <Lobby user={user} onJoinGame={handleJoinMultiplayer} settings={gameSettings} />
-          ) : (
-            <div className="w-full max-w-md mx-auto bg-slate-900 rounded-2xl border border-slate-800 p-8 text-center shadow-2xl">
-              <Globe size={64} className="mx-auto text-amber-500 mb-6 opacity-50" />
-              <h2 className="text-2xl font-bold mb-4">Authentication Required</h2>
-              <p className="text-slate-400 mb-8">You must be logged in to access the multiplayer lobby and play with others.</p>
-              <button 
-                onClick={login}
-                disabled={isLoggingIn}
-                className={`w-full flex items-center justify-center gap-3 font-bold py-4 rounded-xl transition-all shadow-lg ${isLoggingIn ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'}`}
-              >
-                {isLoggingIn ? (
-                  <div className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <LogIn size={20} />
-                )}
-                {isLoggingIn ? 'Logging in...' : 'Login with Google'}
-              </button>
-            </div>
-          )
+          <Lobby user={user} onJoinGame={handleJoinMultiplayer} settings={gameSettings} />
         ) : gameMode === GameMode.MULTIPLAYER && multiplayerGameId && !user ? (
           <div className="w-full max-w-md mx-auto bg-slate-900 rounded-2xl border border-slate-800 p-8 text-center shadow-2xl">
-            <LogIn size={64} className="mx-auto text-amber-500 mb-6 opacity-50" />
-            <h2 className="text-2xl font-bold mb-4">Join Game</h2>
-            <p className="text-slate-400 mb-8">You've been invited to a match! Login to join the battle.</p>
-            <button 
-              onClick={login}
-              disabled={isLoggingIn}
-              className={`w-full flex items-center justify-center gap-3 font-bold py-4 rounded-xl transition-all shadow-lg ${isLoggingIn ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/20'}`}
-            >
-              <LogIn size={20} /> Login to Play
-            </button>
+            <Loader2 size={64} className="mx-auto text-amber-500 mb-6 animate-spin opacity-50" />
+            <h2 className="text-2xl font-bold mb-4">Initializing Session</h2>
+            <p className="text-slate-400 mb-8">Preparing your professional anonymous identity...</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-7 flex flex-col items-center">
+          <div className={isFullscreen ? "w-full max-w-5xl flex items-center justify-center" : "grid grid-cols-1 lg:grid-cols-12 gap-8"}>
+            <div className={isFullscreen ? "w-full flex flex-col items-center justify-center" : "lg:col-span-7 flex flex-col items-center"}>
               <GameInterface 
                 game={game} 
                 gameState={gameState} 
@@ -497,55 +491,59 @@ const App: React.FC = () => {
                 isAiThinking={isAiThinking}
               />
               
-              <div className="mt-6 flex flex-col gap-4 w-full">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <button 
-                    onClick={() => setIsConfiguring(true)}
-                    className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
-                  >
-                    <Settings size={18} /> <span className="hidden sm:inline">Settings</span>
-                  </button>
-                  
-                  {gameMode === GameMode.MULTIPLAYER ? (
-                    <>
-                      <button 
-                        onClick={() => resetGame()}
-                        className="flex items-center justify-center gap-2 bg-red-900/10 hover:bg-red-900/20 text-red-400 py-3 rounded-xl border border-red-900/20 transition-colors font-bold"
-                      >
-                        <RotateCcw size={18} /> <span className="hidden sm:inline">Lobby</span>
-                      </button>
-                      <button 
-                        onClick={copyInviteLink}
-                        className="flex items-center justify-center gap-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 py-3 rounded-xl border border-amber-500/30 transition-all relative overflow-hidden group col-span-2"
-                      >
-                        {showShareTooltip ? <Check size={18} /> : <Share2 size={18} />}
-                        <span>{showShareTooltip ? "Copied!" : "Copy Invite Link"}</span>
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button 
-                        onClick={() => resetGame()}
-                        className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
-                      >
-                        <RotateCcw size={18} /> <span className="hidden sm:inline">Reset</span>
-                      </button>
-                      <button 
-                        onClick={() => game.undo() && updateGameState()}
-                        className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
-                        disabled={gameState.history.length === 0}
-                      >
-                        Undo
-                      </button>
-                    </>
-                  )}
+              {!isFullscreen && (
+                <div className="mt-6 flex flex-col gap-4 w-full">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <button 
+                      onClick={() => setIsConfiguring(true)}
+                      className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
+                    >
+                      <Settings size={18} /> <span className="hidden sm:inline">Settings</span>
+                    </button>
+                    
+                    {gameMode === GameMode.MULTIPLAYER ? (
+                      <>
+                        <button 
+                          onClick={() => resetGame()}
+                          className="flex items-center justify-center gap-2 bg-red-900/10 hover:bg-red-900/20 text-red-400 py-3 rounded-xl border border-red-900/20 transition-colors font-bold"
+                        >
+                          <RotateCcw size={18} /> <span className="hidden sm:inline">Lobby</span>
+                        </button>
+                        <button 
+                          onClick={copyInviteLink}
+                          className="flex items-center justify-center gap-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 py-3 rounded-xl border border-amber-500/30 transition-all relative overflow-hidden group col-span-2"
+                        >
+                          {showShareTooltip ? <Check size={18} /> : <Share2 size={18} />}
+                          <span>{showShareTooltip ? "Copied!" : "Copy Invite Link"}</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button 
+                          onClick={() => resetGame()}
+                          className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
+                        >
+                          <RotateCcw size={18} /> <span className="hidden sm:inline">Reset</span>
+                        </button>
+                        <button 
+                          onClick={() => game.undo() && updateGameState()}
+                          className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
+                          disabled={gameState.history.length === 0}
+                        >
+                          Undo
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            <div className="lg:col-span-5 h-full flex flex-col gap-4">
-              <AnalysisPanel gameState={gameState} game={game} settings={gameSettings} />
-            </div>
+            {!isFullscreen && (
+              <div className="lg:col-span-5 h-full flex flex-col gap-4">
+                <AnalysisPanel gameState={gameState} game={game} settings={gameSettings} />
+              </div>
+            )}
           </div>
         )}
       </main>

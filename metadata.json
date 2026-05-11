@@ -1,0 +1,5 @@
+{
+  "name": "Checkmate Arena",
+  "description": "A high-fidelity chess platform featuring local multiplayer, vs-AI modes, and deep move analysis powered by Gemini AI.",
+  "requestFramePermissions": []
+}

@@ -1,17 +1,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { Chess, Square } from 'chess.js';
-import { GameState, GameMode, Color, MultiplayerGame, GameSettings } from './types';
-import { getAIMove } from './geminiService';
-import { User } from 'firebase/auth';
-import { Clock, Maximize, Minimize } from 'lucide-react';
+import { GameState, GameMode, Color, MultiplayerGame, GameSettings, AnonymousUser } from '../types';
+import { getAIMove } from '../services/geminiService';
+import { Clock, Maximize, Minimize, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface GameInterfaceProps {
   game: Chess;
   gameState: GameState;
   makeMove: (move: { from: string; to: string; promotion?: string }) => boolean;
   gameMode: GameMode;
-  user?: User | null;
+  user?: AnonymousUser | null;
   multiplayerData?: MultiplayerGame | null;
   settings: GameSettings;
   isFullscreen?: boolean;
@@ -46,6 +46,7 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
   toggleFullscreen,
   isAiThinking
 }) => {
+  const [manualFlip, setManualFlip] = useState(false);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [possibleMoves, setPossibleMoves] = useState<string[]>([]);
   const [whiteTime, setWhiteTime] = useState(settings.timeControl * 60);
@@ -89,8 +90,6 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
     }
     return true;
   };
-
-  const isBoardFlipped = gameMode === GameMode.MULTIPLAYER && user && multiplayerData?.players.b === user.uid;
 
   const onSquareClick = (square: string) => {
     if (gameState.isGameOver) {
@@ -144,15 +143,12 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
   const renderBoard = () => {
     const board = [];
     const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-    const ranks = [1, 2, 3, 4, 5, 6, 7, 8];
+    const ranks = [8, 7, 6, 5, 4, 3, 2, 1];
+
     const lastMove = gameState.history[gameState.history.length - 1];
 
-    const displayRanks = isBoardFlipped ? ranks : [...ranks].reverse();
-    const displayFiles = isBoardFlipped ? [...files].reverse() : files;
-
-    for (const rank of displayRanks) {
-      for (let fIdx = 0; fIdx < 8; fIdx++) {
-        const file = displayFiles[fIdx];
+    for (const rank of ranks) {
+      for (const file of files) {
         const square = `${file}${rank}`;
         const isDark = (rank + files.indexOf(file)) % 2 === 0;
         const piece = game.get(square as Square);
@@ -161,8 +157,10 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
         const isLastMove = lastMove && (lastMove.from === square || lastMove.to === square);
 
         board.push(
-          <div 
+          <motion.div 
+            layout
             key={square}
+            id={`square-${square}`}
             onClick={() => onSquareClick(square)}
             className={`
               square
@@ -172,29 +170,77 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
               ${isPossible && isPlayerTurn() ? 'cursor-pointer hover:bg-opacity-80' : 'cursor-default'}
             `}
           >
-            {/* Square labels */}
-            {displayFiles.indexOf(file) === 0 && <span className="coord-label top-1 left-1">{rank}</span>}
-            {displayRanks.indexOf(rank) === 7 && <span className="coord-label bottom-1 right-1 uppercase">{file}</span>}
-            
-            {/* Highlight for possible moves */}
-            {isPossible && isPlayerTurn() && (
-              piece ? (
-                <div className="capture-hint"></div>
-              ) : (
-                <div className="move-hint"></div>
-              )
-            )}
+            {/* Counter-rotation wrapper for all contents to keep them upright */}
+            <div className={`w-full h-full relative transition-transform duration-500 flex items-center justify-center ${manualFlip ? 'rotate-180' : ''}`}>
+              {/* Square labels */}
+              {file === 'a' && (
+                <span className="coord-label top-1 left-1">
+                  {rank}
+                </span>
+              )}
+              {rank === 1 && (
+                <span className="coord-label bottom-1 right-1 uppercase">
+                  {file}
+                </span>
+              )}
 
-            {/* Pieces */}
-            {piece && (
-              <img 
-                src={PIECES[`${piece.color}${piece.type.toUpperCase()}`]} 
-                alt={`${piece.color} ${piece.type}`}
-                className={`chess-piece ${isSelected ? 'selected' : ''}`}
-                referrerPolicy="no-referrer"
-              />
-            )}
-          </div>
+              {/* Extra labels for Local PvP (top player perspective) */}
+              {gameMode === GameMode.LOCAL_PVP && (
+                <>
+                  {file === 'h' && (
+                    <span className="coord-label bottom-1 right-1 rotate-180 opacity-60">
+                      {rank}
+                    </span>
+                  )}
+                  {rank === 8 && (
+                    <span className="coord-label top-1 left-1 uppercase rotate-180 opacity-60">
+                      {file}
+                    </span>
+                  )}
+                </>
+              )}
+              
+              {/* Highlight for possible moves */}
+              {isPossible && isPlayerTurn() && (
+                piece ? (
+                  <div className="capture-hint"></div>
+                ) : (
+                  <div className="move-hint"></div>
+                )
+              )}
+
+              {/* Pieces */}
+              <AnimatePresence mode="popLayout">
+                {piece && (
+                  <motion.img 
+                    // Logic: 
+                    // 1. In Local PvP: White always upright (0), Black always inverted (180) for tabletop play.
+                    // 2. In other modes: Current turn upright (0), opponent inverted (180).
+                    initial={false}
+                    animate={{ 
+                      opacity: 1, 
+                      scale: 1, 
+                      rotate: gameMode === GameMode.LOCAL_PVP 
+                        ? (piece.color === 'w' ? 0 : 180)
+                        : (gameState.turn === 'w' ? 0 : 180)
+                    }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ 
+                      rotate: { duration: 0.3, ease: "easeInOut" },
+                      opacity: { duration: 0.2 },
+                      scale: { duration: 0.2 }
+                    }}
+                    key={`${piece.color}${piece.type}-${square}`}
+                    id={`piece-${piece.color}-${piece.type}-${square}`}
+                    src={PIECES[`${piece.color}${piece.type.toUpperCase()}`]} 
+                    alt={`${piece.color} ${piece.type}`}
+                    className={`chess-piece ${isSelected ? 'selected' : ''}`}
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
         );
       }
     }
@@ -234,13 +280,24 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
             )}
             
             {toggleFullscreen && (
-              <button 
-                onClick={toggleFullscreen}
-                className="absolute inset-0 flex items-center justify-center bg-slate-800 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg text-amber-500"
-                title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
-              >
-                {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-              </button>
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => setManualFlip(!manualFlip)}
+                  className="p-2 bg-slate-800/80 rounded-lg border border-slate-700/50 hover:bg-slate-700 text-amber-500 transition-colors"
+                  title="Flip Board"
+                  id="flip-board-btn"
+                >
+                  <RefreshCw size={18} className={manualFlip ? 'rotate-180 transition-transform' : ''} />
+                </button>
+                <button 
+                  onClick={toggleFullscreen}
+                  className="p-2 bg-slate-800/80 rounded-lg border border-slate-700/50 hover:bg-slate-700 text-amber-500 transition-colors"
+                  title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+                  id="fullscreen-toggle-btn"
+                >
+                  {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                </button>
+              </div>
             )}
         </div>
 
@@ -256,7 +313,7 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
         </div>
       </div>
 
-      <div className="board-container p-2 sm:p-4">
+      <div className={`board-container p-2 sm:p-4 transition-transform duration-500 ${manualFlip ? 'rotate-180' : ''}`}>
         <div className="chess-board-grid w-full rounded-sm">
           {renderBoard()}
         </div>
