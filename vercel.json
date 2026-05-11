@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "find . -name '*.tsx' -o -name '*.ts' | xargs sed -i 's|../components/||g; s|../services/||g; s|\\.\\./firebase|./firebase|g; s|\\.\\./types|./types|g' && npm run build",
   "outputDirectory": "dist",
   "framework": "vite"
 }
