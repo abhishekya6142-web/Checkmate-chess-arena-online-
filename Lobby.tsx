@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { MultiplayerGame, GameSettings } from '../types';
-import { getAvailableGames, createGame, joinGame } from '../services/multiplayerService';
-import { auth } from '../firebase';
+import { MultiplayerGame, GameSettings } from './types';
+import { getAvailableGames, createGame, joinGame } from './multiplayerService';
+import { auth } from './firebase';
 import { Plus, Play, RefreshCw, User as UserIcon } from 'lucide-react';
 
 interface LobbyProps {
