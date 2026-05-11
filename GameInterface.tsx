@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { Chess, Square } from 'chess.js';
-import { GameState, GameMode, Color, MultiplayerGame, GameSettings } from '../types';
-import { getAIMove } from '../services/geminiService';
+import { GameState, GameMode, Color, MultiplayerGame, GameSettings } from './types';
+import { getAIMove } from './geminiService';
 import { User } from 'firebase/auth';
 import { Clock, Maximize, Minimize } from 'lucide-react';
 
