@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Chess, Square } from 'chess.js';
 import GameInterface from './GameInterface';
-import Lobby from '.Lobby';
+import Lobby from './Lobby';
 import { GameMode, GameState, Color, AIAnalysis, MultiplayerGame, GameSettings } from './types';
 import { Trophy, Users, Cpu, RotateCcw, Search, Globe, LogIn, LogOut, User as UserIcon, Share2, Check, Settings, Play, Maximize, Minimize, Loader2 } from 'lucide-react';
-import { analyzeChessPosition, getAIMove } from '.geminiService';
+import { analyzeChessPosition, getAIMove } from './geminiService';
 import { auth } from './firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User } from 'firebase/auth';
 import { subscribeToGame, updateGameMove, joinGame } from './multiplayerService';
