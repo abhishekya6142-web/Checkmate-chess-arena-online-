@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "sed -i \"s|from './components/|from './|g; s|from './services/|from './|g; s|from '../components/|from './|g; s|from '../services/|from './|g; s|from '../firebase|from './firebase|g; s|from '../types|from './types|g\" App.tsx GameInterface.tsx Lobby.tsx multiplayerService.ts geminiService.ts && npm run build",
   "outputDirectory": "dist",
   "framework": "vite"
 }
