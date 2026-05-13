@@ -11,8 +11,8 @@ import { getAIMove } from './geminiService';
 import { getBestMove } from './chessAiService';
 import { db, auth } from './firebase';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { subscribeToGame, updateGameMove, joinGame } from './services/multiplayerService';
-import { saveUserProfile } from './services/userService';
+import { subscribeToGame, updateGameMove, joinGame } from './multiplayerService';
+import { saveUserProfile } from './userService';
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { soundService, ChessSound } from './soundService';
 
