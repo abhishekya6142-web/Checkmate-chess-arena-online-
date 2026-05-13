@@ -1,7 +1,7 @@
 
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { UserProfile } from '../types';
+import { db, handleFirestoreError, OperationType } from './firebase';
+import { UserProfile } from './types';
 
 const USERS_COLLECTION = 'users';
 
