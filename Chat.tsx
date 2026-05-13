@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatMessage, AnonymousUser } from '../types';
-import { sendChatMessage, subscribeToChatMessages } from '../services/multiplayerService';
+import { ChatMessage, AnonymousUser } from './types';
+import { sendChatMessage, subscribeToChatMessages } from './multiplayerService';
 import { Send, MessageSquare } from 'lucide-react';
 
 interface ChatProps {
