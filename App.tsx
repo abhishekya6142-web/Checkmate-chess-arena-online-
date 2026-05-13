@@ -1,20 +1,20 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Chess, Square } from 'chess.js';
-import GameInterface from './components/GameInterface';
-import Lobby from './components/Lobby';
-import Profile from './components/Profile';
-import Chat from './components/Chat';
+import GameInterface from './GameInterface';
+import Lobby from './Lobby';
+import Profile from './Profile';
+import Chat from './Chat';
 import { GameMode, GameState, Color, MultiplayerGame, GameSettings, AnonymousUser } from './types';
 import { Trophy, Users, Cpu, RotateCcw, Search, Globe, LogIn, LogOut, User as UserIcon, Share2, Check, Settings, Play, Maximize, Minimize, Loader2, UserPlus, Volume2, VolumeX, Brain, Zap } from 'lucide-react';
-import { getAIMove } from './services/geminiService';
-import { getBestMove } from './services/chessAiService';
+import { getAIMove } from './geminiService';
+import { getBestMove } from './chessAiService';
 import { db, auth } from './firebase';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { subscribeToGame, updateGameMove, joinGame } from './services/multiplayerService';
 import { saveUserProfile } from './services/userService';
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
-import { soundService, ChessSound } from './services/soundService';
+import { soundService, ChessSound } from './soundService';
 
 // Helper component to handle room parameter from URL
 const RoomRedirect: React.FC<{ setMultiplayerGameId: (id: string) => void; setGameMode: (m: GameMode) => void }> = ({ setMultiplayerGameId, setGameMode }) => {
