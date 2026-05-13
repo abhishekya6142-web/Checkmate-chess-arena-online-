@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { MultiplayerGame, GameSettings, AnonymousUser } from './types';
-import { getAvailableGames, createGame, joinGame } from './multiplayerService';
-import { Plus, Play, RefreshCw, User as UserIcon } from 'lucide-react';
+import { MultiplayerGame, GameSettings, AnonymousUser } from '../types';
+import { createGame, joinGame, deleteGame, subscribeToAvailableGames } from '../services/multiplayerService';
+import { Plus, Play, RefreshCw, User as UserIcon, X } from 'lucide-react';
 
 interface LobbyProps {
   onJoinGame: (gameId: string) => void;
@@ -14,20 +14,22 @@ const Lobby: React.FC<LobbyProps> = ({ onJoinGame, user, settings }) => {
   const [games, setGames] = useState<MultiplayerGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-
-  const fetchGames = async () => {
-    setLoading(true);
-    const availableGames = await getAvailableGames(user?.uid);
-    setGames(availableGames);
-    setLoading(false);
-  };
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   useEffect(() => {
-    if (user) {
-      fetchGames();
-    } else {
+    if (!user) {
       setLoading(false);
+      return;
     }
+
+    setLoading(true);
+    const unsubscribe = subscribeToAvailableGames((availableGames) => {
+      setGames(availableGames);
+      setLoading(false);
+      setLastUpdated(new Date());
+    }, user.uid);
+
+    return () => unsubscribe();
   }, [user]);
 
   const handleCreateGame = async () => {
@@ -48,6 +50,12 @@ const Lobby: React.FC<LobbyProps> = ({ onJoinGame, user, settings }) => {
     }
   };
 
+  const handleDeleteGame = async (e: React.MouseEvent, gameId: string) => {
+    e.stopPropagation();
+    if (!user) return;
+    await deleteGame(gameId, user.uid);
+  };
+
   return (
     <div className="w-full max-w-2xl mx-auto bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
       <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
@@ -61,7 +69,7 @@ const Lobby: React.FC<LobbyProps> = ({ onJoinGame, user, settings }) => {
           </div>
         </div>
         <button 
-          onClick={fetchGames}
+          onClick={() => setLastUpdated(new Date())}
           disabled={loading}
           className={`p-3 rounded-xl transition-all border ${loading ? 'bg-slate-800 border-slate-700 text-slate-500' : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:text-amber-500 hover:border-amber-500/30 hover:bg-slate-800'}`}
           title="Refresh games"
@@ -103,7 +111,7 @@ const Lobby: React.FC<LobbyProps> = ({ onJoinGame, user, settings }) => {
             </h3>
             {!loading && (
               <span className="text-[10px] text-slate-600 uppercase tracking-tighter">
-                Last updated: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                Last updated: {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
             )}
           </div>
@@ -133,15 +141,32 @@ const Lobby: React.FC<LobbyProps> = ({ onJoinGame, user, settings }) => {
                     </div>
                     <div>
                       <p className="font-bold text-slate-200">Game #{game.id.slice(-4)}</p>
-                      <p className="text-xs text-slate-500">Waiting for opponent...</p>
+                      <p className="text-xs text-slate-500">
+                        {game.players.w === user?.uid ? 'Your game - Waiting...' : 'Waiting for opponent...'}
+                      </p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => handleJoinGame(game.id)}
-                    className="px-6 py-2 bg-slate-700 hover:bg-amber-600 text-white rounded-lg font-bold transition-all group-hover:scale-105"
-                  >
-                    Join
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {game.players.w === user?.uid && (
+                      <button 
+                        onClick={(e) => handleDeleteGame(e, game.id)}
+                        className="p-2 text-slate-500 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Delete Game"
+                      >
+                        <X size={18} />
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => handleJoinGame(game.id)}
+                      className={`px-6 py-2 rounded-lg font-bold transition-all group-hover:scale-105 ${
+                        game.players.w === user?.uid 
+                          ? 'bg-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white border border-amber-500/30' 
+                          : 'bg-slate-700 hover:bg-amber-600 text-white'
+                      }`}
+                    >
+                      {game.players.w === user?.uid ? 'Enter' : 'Join'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

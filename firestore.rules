@@ -1,65 +1,116 @@
-// ===============================================================
-// Assumed Data Model
-// ===============================================================
-//
-// Collection: users
-// Document ID: userId (UID)
-// Fields:
-//   - uid: string (required) - User's unique ID
-//   - displayName: string (optional) - User's display name
-//   - photoURL: string (optional) - User's photo URL
-//   - email: string (optional) - User's email
-//
-// Collection: games
-// Document ID: gameId
-// Fields:
-//   - fen: string (required) - Current board state
-//   - history: list (required) - List of moves in SAN
-//   - players: map (required) - { w: uid, b: uid }
-//   - status: string (required) - 'waiting', 'active', 'finished'
-//   - turn: string (required) - 'w', 'b'
-//   - winner: string (optional) - UID or 'draw'
-//   - lastMoveAt: timestamp (optional) - Time of last move
-//
-// ===============================================================
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Default Deny: All access must be explicitly allowed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     // ===============================================================
-    // Helper Functions
+    // Global Safety Helpers
     // ===============================================================
-    
-    // Custom anonymous system helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Prevents ID poisoning attacks with oversized or invalid strings
     function isValidId(id) { 
-      return id is string && id.size() <= 128; 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
     }
 
-    function isValidUser(data) {
-      return data.keys().hasAll(['uid']) &&
-             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100)) &&
-             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() < 500)) &&
-             (!('email' in data) || (data.email is string && data.email.size() < 100));
-    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
 
+    // ===============================================================
+    // Game Entity Validation (Anti-Shadow Update)
+    // ===============================================================
     function isValidGame(data) {
-      return data.keys().hasAll(['fen', 'status', 'turn']) &&
-             data.fen is string && data.fen.size() < 200 &&
+      return data.keys().hasAll(['fen', 'status', 'turn', 'players']) &&
+             data.fen is string && data.fen.size() <= 200 &&
              data.status in ['waiting', 'active', 'finished'] &&
              data.turn in ['w', 'b'] &&
-             (!('history' in data) || (data.history is list && data.history.size() < 1000)) &&
-             (!('players' in data) || (data.players is map && data.players.keys().hasOnly(['w', 'b']))) &&
+             data.players is map &&
+             data.players.w is string &&
+             (!('b' in data.players) || data.players.b == null || data.players.b is string) &&
+             (!('history' in data) || (data.history is list && data.history.size() <= 1000)) &&
              (!('winner' in data) || (data.winner is string || data.winner == null)) &&
              (!('lastMoveAt' in data) || (data.lastMoveAt is timestamp));
     }
 
+    // ===============================================================
+    // User Entity Validation
+    // ===============================================================
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName']) &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 50 &&
+             (!('updatedAt' in data) || (data.updatedAt is timestamp));
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if false; // No direct listing of users
+
+      allow create: if isSignedIn() && userId == request.auth.uid && isValidUser(incoming());
+      allow update: if isSignedIn() && userId == request.auth.uid && isValidUser(incoming()) && incoming().updatedAt == request.time;
+    }
+
     match /games/{gameId} {
-      allow get: if true;
+      // Lobby discovery
       allow list: if true;
-      allow create: if isValidGame(request.resource.data);
-      allow update: if isValidGame(request.resource.data);
-      allow delete: if false;
+      allow get: if true;
+
+      // Only signed in users can create games, and must be assigned to White
+      allow create: if isSignedIn() && 
+                    isValidId(gameId) &&
+                    isValidGame(incoming()) && 
+                    incoming().players.w == request.auth.uid &&
+                    incoming().status == 'waiting';
+
+      // Atomic state transitions
+      allow update: if isSignedIn() && 
+                    isValidId(gameId) &&
+                    isValidGame(incoming()) && (
+                      // Action: Join Game (Waiting -> Active)
+                      (
+                        existing().status == 'waiting' &&
+                        incoming().status == 'active' &&
+                        existing().players.w != request.auth.uid &&
+                        incoming().players.b == request.auth.uid &&
+                        incoming().players.w == existing().players.w &&
+                        incoming().diff(existing()).affectedKeys().hasOnly(['players', 'status', 'lastMoveAt'])
+                      ) ||
+                      // Action: Move / Turn Update (Active -> Active/Finished)
+                      (
+                        existing().status == 'active' &&
+                        (request.auth.uid == existing().players.w || request.auth.uid == existing().players.b) &&
+                        incoming().players.w == existing().players.w &&
+                        (incoming().players.get('b', null) == existing().players.get('b', null)) &&
+                        incoming().diff(existing()).affectedKeys().hasOnly(['fen', 'turn', 'history', 'lastMoveAt', 'winner', 'status'])
+                      )
+                    );
+
+      // Only the creator (White player) can delete their own game
+      allow delete: if isSignedIn() && 
+                    isValidId(gameId) &&
+                    existing().players.w == request.auth.uid;
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && 
+                    (get(/databases/$(database)/documents/games/$(gameId)).data.players.w == request.auth.uid || 
+                     get(/databases/$(database)/documents/games/$(gameId)).data.players.b == request.auth.uid);
+        
+        allow create: if isSignedIn() && 
+                      isValidId(gameId) &&
+                      isValidId(messageId) &&
+                      (get(/databases/$(database)/documents/games/$(gameId)).data.players.w == request.auth.uid || 
+                       get(/databases/$(database)/documents/games/$(gameId)).data.players.b == request.auth.uid) &&
+                      incoming().keys().hasAll(['senderId', 'senderName', 'text', 'createdAt']) &&
+                      incoming().senderId == request.auth.uid &&
+                      incoming().senderName is string && incoming().senderName.size() <= 50 &&
+                      incoming().text is string && incoming().text.size() <= 1000 &&
+                      incoming().createdAt == request.time;
+      }
     }
   }
 }

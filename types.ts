@@ -4,6 +4,12 @@ export interface AnonymousUser {
   displayName: string;
 }
 
+export interface UserProfile {
+  uid: string;
+  displayName: string;
+  updatedAt?: any;
+}
+
 export type Color = 'w' | 'b';
 export type PieceSymbol = 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
 
@@ -32,8 +38,7 @@ export interface GameState {
 export enum GameMode {
   VS_AI = 'VS_AI',
   LOCAL_PVP = 'LOCAL_PVP',
-  MULTIPLAYER = 'MULTIPLAYER',
-  ANALYSIS = 'ANALYSIS'
+  MULTIPLAYER = 'MULTIPLAYER'
 }
 
 export interface MultiplayerGame {
@@ -50,15 +55,18 @@ export interface MultiplayerGame {
   lastMoveAt: any;
 }
 
-export interface AIAnalysis {
-  bestMove: string;
-  evaluation: string;
-  explanation: string;
-  suggestions: string[];
-}
-
 export interface GameSettings {
   startingFen: string;
   timeControl: number; // in minutes
   aiDifficulty: 'easy' | 'medium' | 'hard';
+  enableSound?: boolean;
+  aiType?: 'engine' | 'gemini';
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  createdAt: any;
 }

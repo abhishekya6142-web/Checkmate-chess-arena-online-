@@ -20,12 +20,42 @@
         "lastMoveAt": { "type": "string", "format": "date-time", "description": "Timestamp of last move" }
       },
       "required": ["fen", "status", "turn"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile data",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "description": "Public display name" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last time profile was updated" }
+      },
+      "required": ["displayName"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "A message in the game chat",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string", "description": "UID of the sender" },
+        "senderName": { "type": "string", "description": "Name of the sender" },
+        "text": { "type": "string", "description": "Message content" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp" }
+      },
+      "required": ["senderId", "senderName", "text", "createdAt"]
     }
   },
   "firestore": {
     "/games/{gameId}": {
       "schema": "Game",
       "description": "Active and finished chess games"
+    },
+    "/games/{gameId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Chat messages for a specific game"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Public user profiles"
     }
   }
 }

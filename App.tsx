@@ -1,13 +1,20 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Chess, Square } from 'chess.js';
-import GameInterface from './GameInterface';
-import Lobby from './Lobby';
-import { GameMode, GameState, Color, AIAnalysis, MultiplayerGame, GameSettings, AnonymousUser } from './types';
-import { Trophy, Users, Cpu, RotateCcw, Search, Globe, LogIn, LogOut, User as UserIcon, Share2, Check, Settings, Play, Maximize, Minimize, Loader2, UserPlus } from 'lucide-react';
-import { analyzeChessPosition, getAIMove } from './geminiService';
-import { subscribeToGame, updateGameMove, joinGame } from './multiplayerService';
+import GameInterface from './components/GameInterface';
+import Lobby from './components/Lobby';
+import Profile from './components/Profile';
+import Chat from './components/Chat';
+import { GameMode, GameState, Color, MultiplayerGame, GameSettings, AnonymousUser } from './types';
+import { Trophy, Users, Cpu, RotateCcw, Search, Globe, LogIn, LogOut, User as UserIcon, Share2, Check, Settings, Play, Maximize, Minimize, Loader2, UserPlus, Volume2, VolumeX, Brain, Zap } from 'lucide-react';
+import { getAIMove } from './services/geminiService';
+import { getBestMove } from './services/chessAiService';
+import { db, auth } from './firebase';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { subscribeToGame, updateGameMove, joinGame } from './services/multiplayerService';
+import { saveUserProfile } from './services/userService';
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { soundService, ChessSound } from './services/soundService';
 
 // Helper component to handle room parameter from URL
 const RoomRedirect: React.FC<{ setMultiplayerGameId: (id: string) => void; setGameMode: (m: GameMode) => void }> = ({ setMultiplayerGameId, setGameMode }) => {
@@ -40,7 +47,9 @@ const App: React.FC = () => {
   const [gameSettings, setGameSettings] = useState<GameSettings>({
     startingFen: 'start',
     timeControl: 10,
-    aiDifficulty: 'medium'
+    aiDifficulty: 'medium',
+    enableSound: true,
+    aiType: 'engine'
   });
   const [gameState, setGameState] = useState<GameState>({
     fen: game.fen(),
@@ -52,28 +61,43 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    const savedUid = localStorage.getItem('anonymous_uid');
-    const savedName = localStorage.getItem('player_name');
-    
-    if (savedUid && savedName) {
-      setUser({ uid: savedUid, displayName: savedName });
-    } else {
-      // If no ID, generate one but don't set user until they provide a name
-      if (!savedUid) {
-        const newUid = 'anon_' + Math.random().toString(36).substring(2, 11);
-        localStorage.setItem('anonymous_uid', newUid);
+    // 1. Listen for Firebase Auth state
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      const savedName = localStorage.getItem('player_name');
+      
+      if (firebaseUser) {
+        if (savedName) {
+          setUser({ uid: firebaseUser.uid, displayName: savedName });
+          setIsSettingUpName(false);
+          // Ensure Firestore has the latest name
+          saveUserProfile(firebaseUser.uid, savedName);
+        } else {
+          setUser({ uid: firebaseUser.uid, displayName: '' });
+          setIsSettingUpName(true);
+        }
+      } else {
+        // 2. If not signed in, sign in anonymously
+        signInAnonymously(auth).catch(err => {
+          console.error("[Auth Error]", err);
+        });
       }
-      setIsSettingUpName(true);
-    }
+    });
+
+    return () => unsubscribeAuth();
   }, []);
 
-  const handleSetupName = (e: React.FormEvent) => {
+  const handleSetupName = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tempName.trim()) return;
+    if (!auth.currentUser) return;
     
-    const uid = localStorage.getItem('anonymous_uid')!;
-    localStorage.setItem('player_name', tempName.trim());
-    setUser({ uid, displayName: tempName.trim() });
+    const displayName = tempName.trim();
+    localStorage.setItem('player_name', displayName);
+    setUser({ uid: auth.currentUser.uid, displayName });
+    
+    // Sync to Firestore
+    await saveUserProfile(auth.currentUser.uid, displayName);
+    
     setIsSettingUpName(false);
   };
 
@@ -121,11 +145,29 @@ const App: React.FC = () => {
         setMultiplayerData(data);
         if (data.fen !== game.fen()) {
           const newGame = new Chess(data.fen);
+          // Detect move for sound from history diff
+          const oldHistoryCount = game.history().length;
+          const newHistory = newGame.history({ verbose: true });
+          
           setGame(newGame);
-          // We need to manually update the state here because setGame is async-ish in terms of effect
+          
+          if (newHistory.length > oldHistoryCount) {
+            const lastMove = newHistory[newHistory.length - 1];
+            // We use the new game object state (check/mate) to play the sound
+            if (newGame.isCheckmate()) {
+              soundService.play(ChessSound.CHECKMATE);
+            } else if (newGame.isCheck()) {
+              soundService.play(ChessSound.CHECK);
+            } else if (lastMove.captured || lastMove.flags.includes('e')) {
+              soundService.play(ChessSound.CAPTURE);
+            } else {
+              soundService.play(ChessSound.MOVE);
+            }
+          }
+
           setGameState({
             fen: data.fen,
-            history: newGame.history({ verbose: true }),
+            history: newHistory,
             isGameOver: newGame.isGameOver(),
             winner: data.winner as Color | 'draw' | null,
             turn: newGame.turn(),
@@ -136,6 +178,22 @@ const App: React.FC = () => {
       return () => unsubscribe();
     }
   }, [gameMode, multiplayerGameId, user?.uid]);
+
+  useEffect(() => {
+    soundService.setEnabled(gameSettings.enableSound !== false);
+  }, [gameSettings.enableSound]);
+
+  const playMoveSound = useCallback((moveResult: any) => {
+    if (game.isCheckmate()) {
+      soundService.play(ChessSound.CHECKMATE);
+    } else if (game.isCheck()) {
+      soundService.play(ChessSound.CHECK);
+    } else if (moveResult && (moveResult.captured || moveResult.flags.includes('e'))) {
+      soundService.play(ChessSound.CAPTURE);
+    } else {
+      soundService.play(ChessSound.MOVE);
+    }
+  }, [game]);
 
   const updateGameState = useCallback(() => {
     const newFen = game.fen();
@@ -184,6 +242,7 @@ const App: React.FC = () => {
       console.log(`[Move Attempt] ${typeof move === 'string' ? move : `${move.from}->${move.to}`}`);
       const result = game.move(move);
       if (result) {
+        playMoveSound(result);
         updateGameState();
         return true;
       }
@@ -205,12 +264,20 @@ const App: React.FC = () => {
           // Small delay for natural feel
           await new Promise(r => setTimeout(r, 1000));
           
-          const moveSan = await getAIMove(game.fen(), gameSettings.aiDifficulty);
-          console.log(`[AI] Gemini suggested move: ${moveSan}`);
+          let moveSan = "";
+          if (gameSettings.aiType === 'gemini') {
+            moveSan = await getAIMove(game.fen(), gameSettings.aiDifficulty);
+            console.log(`[AI] Gemini suggested move: ${moveSan}`);
+          } else {
+            // Use custom engine
+            moveSan = getBestMove(game, gameSettings.aiDifficulty);
+            console.log(`[AI] Engine suggested move: ${moveSan}`);
+          }
           
           if (moveSan) {
             const result = game.move(moveSan);
             if (result) {
+              playMoveSound(result);
               console.log("[AI] Move executed successfully");
             } else {
               throw new Error("AI suggested invalid move: " + moveSan);
@@ -224,7 +291,8 @@ const App: React.FC = () => {
           const moves = game.moves();
           if (moves.length > 0) {
             const randomMove = moves[Math.floor(Math.random() * moves.length)];
-            game.move(randomMove);
+            const result = game.move(randomMove);
+            if (result) playMoveSound(result);
             console.log(`[AI] Fallback random move executed: ${randomMove}`);
           }
         } finally {
@@ -237,9 +305,30 @@ const App: React.FC = () => {
     }
   }, [gameState.turn, gameMode, gameState.isGameOver, game, gameSettings.aiDifficulty, isAiThinking, updateGameState]);
 
+  const handleUndo = () => {
+    if (gameMode === GameMode.MULTIPLAYER || isAiThinking) return;
+
+    if (gameMode === GameMode.VS_AI) {
+      // If it is currently AI's turn to move, we only need to undo once (our move)
+      // Otherwise, the AI has already moved, so we undo twice (AI move + our move)
+      if (game.turn() === 'b') {
+        game.undo();
+      } else {
+        game.undo();
+        game.undo();
+      }
+    } else {
+      game.undo();
+    }
+    updateGameState();
+  };
+
   const resetGame = (settings?: GameSettings) => {
     const activeSettings = settings || gameSettings;
     const newGame = new Chess(activeSettings.startingFen === 'start' ? undefined : activeSettings.startingFen);
+    
+    soundService.play(ChessSound.GAME_START);
+
     setGame(newGame);
     setGameState({
       fen: newGame.fen(),
@@ -355,7 +444,7 @@ const App: React.FC = () => {
         <header className="w-full max-w-6xl flex flex-col md:flex-row justify-between items-center mb-8 gap-4 animate-in fade-in slide-in-from-top-4">
           <div>
             <h1 className="text-3xl font-serif font-bold text-amber-500">Checkmate Arena</h1>
-            <p className="text-slate-400 text-sm">Elevate your game with AI Analysis</p>
+            <p className="text-slate-400 text-sm">Elevate your game</p>
           </div>
           
           <div className="flex flex-wrap justify-center gap-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
@@ -363,7 +452,7 @@ const App: React.FC = () => {
               onClick={() => { setGameMode(GameMode.VS_AI); resetGame(); }}
               className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all ${gameMode === GameMode.VS_AI ? 'bg-amber-600 text-white' : 'hover:bg-slate-800'}`}
             >
-              <Cpu size={18} /> <span className="hidden sm:inline">vs AI</span>
+              <Cpu size={18} /> <span className="hidden sm:inline">vs Chesko</span>
             </button>
             <button 
               onClick={() => { setGameMode(GameMode.LOCAL_PVP); resetGame(); }}
@@ -392,17 +481,23 @@ const App: React.FC = () => {
 
             {user ? (
               <div className="flex items-center gap-3 pl-2 border-l border-slate-800 ml-1">
-                <div className="flex flex-col items-end hidden sm:flex">
-                  <span className="text-xs font-bold text-slate-200 leading-none">{user.displayName}</span>
+                <button 
+                  onClick={() => navigate('/profile')}
+                  className="flex flex-col items-end hidden sm:flex text-right hover:text-amber-500 transition-colors"
+                >
+                  <span className="text-xs font-bold leading-none">{user.displayName}</span>
                   <span className="text-[10px] text-slate-500 leading-none mt-1">Anonymous Player</span>
-                </div>
-                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-700 shadow-lg">
+                </button>
+                <button 
+                  onClick={() => navigate('/profile')}
+                  className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-700 shadow-lg hover:border-amber-500/50 hover:text-amber-500 transition-all"
+                >
                   <UserIcon size={14} />
-                </div>
+                </button>
                 <button 
                   onClick={() => setIsSettingUpName(true)}
                   className="p-2 rounded-md hover:bg-slate-800 text-slate-400 hover:text-amber-500 transition-all"
-                  title="Change Name"
+                  title="Change Name Quick"
                 >
                   <Settings size={18} />
                 </button>
@@ -474,76 +569,76 @@ const App: React.FC = () => {
             <h2 className="text-2xl font-bold mb-4">Initializing Session</h2>
             <p className="text-slate-400 mb-8">Preparing your professional anonymous identity...</p>
           </div>
+        ) : location.pathname === '/profile' ? (
+          <Profile user={user} onUpdateName={(name) => setUser(prev => prev ? { ...prev, displayName: name } : null)} />
         ) : (
-          <div className={isFullscreen ? "w-full max-w-5xl flex items-center justify-center" : "grid grid-cols-1 lg:grid-cols-12 gap-8"}>
-            <div className={isFullscreen ? "w-full flex flex-col items-center justify-center" : "lg:col-span-7 flex flex-col items-center"}>
-              <GameInterface 
-                game={game} 
-                gameState={gameState} 
-                makeMove={makeMove} 
-                gameMode={gameMode}
-                user={user}
-                multiplayerData={multiplayerData}
-                settings={gameSettings}
-                isFullscreen={isFullscreen}
-                toggleFullscreen={toggleFullscreen}
-                isAiThinking={isAiThinking}
-              />
-              
-              {!isFullscreen && (
-                <div className="mt-6 flex flex-col gap-4 w-full">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <button 
-                      onClick={() => setIsConfiguring(true)}
-                      className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
-                    >
-                      <Settings size={18} /> <span className="hidden sm:inline">Settings</span>
-                    </button>
-                    
-                    {gameMode === GameMode.MULTIPLAYER ? (
-                      <>
-                        <button 
-                          onClick={() => resetGame()}
-                          className="flex items-center justify-center gap-2 bg-red-900/10 hover:bg-red-900/20 text-red-400 py-3 rounded-xl border border-red-900/20 transition-colors font-bold"
-                        >
-                          <RotateCcw size={18} /> <span className="hidden sm:inline">Lobby</span>
-                        </button>
-                        <button 
-                          onClick={copyInviteLink}
-                          className="flex items-center justify-center gap-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 py-3 rounded-xl border border-amber-500/30 transition-all relative overflow-hidden group col-span-2"
-                        >
-                          {showShareTooltip ? <Check size={18} /> : <Share2 size={18} />}
-                          <span>{showShareTooltip ? "Copied!" : "Copy Invite Link"}</span>
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button 
-                          onClick={() => resetGame()}
-                          className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
-                        >
-                          <RotateCcw size={18} /> <span className="hidden sm:inline">Reset</span>
-                        </button>
-                        <button 
-                          onClick={() => game.undo() && updateGameState()}
-                          className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
-                          disabled={gameState.history.length === 0}
-                        >
-                          Undo
-                        </button>
-                      </>
-                    )}
+            <div className={isFullscreen ? "w-full max-w-5xl flex items-center justify-center" : "w-full max-w-3xl mx-auto flex flex-col items-center"}>
+              <div className="w-full flex flex-col items-center">
+                <GameInterface 
+                  game={game} 
+                  gameState={gameState} 
+                  makeMove={makeMove} 
+                  gameMode={gameMode}
+                  user={user}
+                  multiplayerData={multiplayerData}
+                  settings={gameSettings}
+                  isFullscreen={isFullscreen}
+                  toggleFullscreen={toggleFullscreen}
+                  isAiThinking={isAiThinking}
+                />
+                
+                {!isFullscreen && (
+                  <div className="mt-6 flex flex-col gap-4 w-full">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <button 
+                        onClick={() => setIsConfiguring(true)}
+                        className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
+                      >
+                        <Settings size={18} /> <span className="hidden sm:inline">Settings</span>
+                      </button>
+                      
+                      {gameMode === GameMode.MULTIPLAYER ? (
+                        <>
+                          <button 
+                            onClick={() => resetGame()}
+                            className="flex items-center justify-center gap-2 bg-red-900/10 hover:bg-red-900/20 text-red-400 py-3 rounded-xl border border-red-900/20 transition-colors font-bold"
+                          >
+                            <RotateCcw size={18} /> <span className="hidden sm:inline">Lobby</span>
+                          </button>
+                          <button 
+                            onClick={copyInviteLink}
+                            className="flex items-center justify-center gap-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-500 py-3 rounded-xl border border-amber-500/30 transition-all relative overflow-hidden group col-span-2"
+                          >
+                            {showShareTooltip ? <Check size={18} /> : <Share2 size={18} />}
+                            <span>{showShareTooltip ? "Copied!" : "Copy Invite Link"}</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button 
+                            onClick={() => resetGame()}
+                            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
+                          >
+                            <RotateCcw size={18} /> <span className="hidden sm:inline">Reset</span>
+                          </button>
+                          <button 
+                            onClick={handleUndo}
+                            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl border border-slate-700 transition-colors"
+                            disabled={gameState.history.length === 0 || isAiThinking}
+                          >
+                            Undo
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-
-            {!isFullscreen && (
-              <div className="lg:col-span-5 h-full flex flex-col gap-4">
-                <AnalysisPanel gameState={gameState} game={game} settings={gameSettings} />
+                )}
               </div>
-            )}
-          </div>
+            </div>
+        )}
+        
+        {gameMode === GameMode.MULTIPLAYER && multiplayerGameId && user && (
+          <Chat gameId={multiplayerGameId} user={user} />
         )}
       </main>
 
@@ -554,7 +649,7 @@ const App: React.FC = () => {
             <h2 className="text-3xl font-bold mb-2">
               {gameState.winner === 'draw' ? "It's a Draw!" : `${gameState.winner === 'w' ? 'White' : 'Black'} Wins!`}
             </h2>
-            <p className="text-slate-400 mb-6">Excellent game. Check out the analysis for strategic insights.</p>
+            <p className="text-slate-400 mb-6">Excellent game. Ready for another match?</p>
             <button 
               onClick={() => setIsConfiguring(true)}
               className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl transition-all"
@@ -581,8 +676,42 @@ const App: React.FC = () => {
             </div>
 
             <div className="space-y-6">
+              <div className="flex items-center justify-between bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
+                <div>
+                  <h3 className="font-bold flex items-center gap-2">
+                    {gameSettings.enableSound ? <Volume2 size={18} className="text-amber-500" /> : <VolumeX size={18} className="text-slate-500" />}
+                    Sound Effects
+                  </h3>
+                  <p className="text-xs text-slate-500">Subtle alerts for moves and captures</p>
+                </div>
+                <button 
+                  onClick={() => setGameSettings(s => ({ ...s, enableSound: !s.enableSound }))}
+                  className={`relative w-12 h-6 rounded-full transition-colors ${gameSettings.enableSound ? 'bg-amber-600' : 'bg-slate-700'}`}
+                >
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${gameSettings.enableSound ? 'left-7' : 'left-1'}`} />
+                </button>
+              </div>
+
               <div>
-                <label className="block text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">AI Difficulty</label>
+                <label className="block text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">Chesko Model</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={() => setGameSettings(s => ({ ...s, aiType: 'engine' }))}
+                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${gameSettings.aiType === 'engine' ? 'bg-amber-600/20 border-amber-500 text-amber-500 shadow-lg shadow-amber-500/10' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
+                  >
+                    <Zap size={16} /> Pro Engine
+                  </button>
+                  <button 
+                    onClick={() => setGameSettings(s => ({ ...s, aiType: 'gemini' }))}
+                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border transition-all ${gameSettings.aiType === 'gemini' ? 'bg-amber-600/20 border-amber-500 text-amber-500 shadow-lg shadow-amber-500/10' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
+                  >
+                    <Brain size={16} /> Gemini Brain
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">Difficulty Level</label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['easy', 'medium', 'hard'] as const).map(diff => (
                     <button
@@ -634,101 +763,6 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-const AnalysisPanel: React.FC<{ gameState: GameState; game: Chess; settings: GameSettings }> = ({ gameState, game, settings }) => {
-  // Fix: AIAnalysis is now imported correctly at the top level
-  const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const requestAnalysis = async () => {
-    setLoading(true);
-    // Fix: analyzeChessPosition is now imported at the top level
-    const result = await analyzeChessPosition(gameState.fen, gameState.history.map(m => m.san || ''));
-    setAnalysis(result);
-    setLoading(false);
-  };
-
-  return (
-    <div className="bg-slate-900 rounded-2xl border border-slate-800 flex flex-col flex-1 overflow-hidden">
-      <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
-        <div className="flex flex-col">
-          <h3 className="font-bold flex items-center gap-2"><Search size={18} /> AI Coach</h3>
-          <span className="text-[10px] text-slate-500 uppercase tracking-widest ml-7">Level: {settings.aiDifficulty}</span>
-        </div>
-        <button 
-          onClick={requestAnalysis}
-          disabled={loading}
-          className="text-xs px-3 py-1 bg-amber-600/20 text-amber-500 rounded-full border border-amber-500/30 hover:bg-amber-600/30 disabled:opacity-50 transition-all"
-        >
-          {loading ? 'Analyzing...' : 'Analyze Position'}
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {!analysis && !loading && (
-          <div className="h-full flex flex-col items-center justify-center text-slate-500 italic text-center px-8">
-            <Search size={48} className="mb-4 opacity-20" />
-            <p>Click "Analyze Position" for Grandmaster insights into this move.</p>
-          </div>
-        )}
-
-        {loading && (
-          <div className="space-y-4 animate-pulse">
-            <div className="h-4 bg-slate-800 rounded w-1/2"></div>
-            <div className="h-20 bg-slate-800 rounded"></div>
-            <div className="h-4 bg-slate-800 rounded w-3/4"></div>
-          </div>
-        )}
-
-        {analysis && !loading && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-start">
-              <div>
-                <span className="text-xs text-slate-500 block mb-1">Best Move</span>
-                <span className="text-xl font-mono font-bold text-amber-500">{analysis.bestMove}</span>
-              </div>
-              <div className="text-right">
-                <span className="text-xs text-slate-500 block mb-1">Eval</span>
-                <span className={`text-xl font-bold ${analysis.evaluation.includes('-') ? 'text-red-400' : 'text-emerald-400'}`}>
-                  {analysis.evaluation}
-                </span>
-              </div>
-            </div>
-
-            <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-              <span className="text-xs text-slate-500 block mb-2">Strategy & Plan</span>
-              <p className="text-sm leading-relaxed text-slate-300">{analysis.explanation}</p>
-            </div>
-
-            <div>
-              <span className="text-xs text-slate-500 block mb-2">Candidate Moves</span>
-              <div className="flex flex-wrap gap-2">
-                {analysis.suggestions.map((s, i) => (
-                  <span key={i} className="px-3 py-1 bg-slate-800 rounded-lg text-sm border border-slate-700">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="p-4 bg-slate-950 border-t border-slate-800">
-        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">History</h4>
-        <div className="flex flex-wrap gap-2 h-20 overflow-y-auto content-start">
-          {gameState.history.map((move, idx) => (
-            <span key={idx} className="text-sm">
-              {idx % 2 === 0 ? <span className="text-slate-600 mr-1">{Math.floor(idx/2)+1}.</span> : ''}
-              <span className="bg-slate-800 px-2 py-0.5 rounded border border-slate-700/50">{move.san}</span>
-            </span>
-          ))}
-          {gameState.history.length === 0 && <span className="text-slate-600 text-xs">No moves yet</span>}
-        </div>
-      </div>
     </div>
   );
 };
