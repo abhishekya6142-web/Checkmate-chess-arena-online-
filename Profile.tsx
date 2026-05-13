@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { AnonymousUser, UserProfile } from '../types';
-import { getUserProfile, saveUserProfile } from '../services/userService';
+import { AnonymousUser, UserProfile } from './types';
+import { getUserProfile, saveUserProfile } from './userService';
 import { User, Shield, Info, Edit2, Check, Clock, Trophy, History, ArrowLeft, Loader2 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
 interface ProfileProps {
