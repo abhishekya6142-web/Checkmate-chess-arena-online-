@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { MultiplayerGame, GameSettings, AnonymousUser } from '../types';
-import { createGame, joinGame, deleteGame, subscribeToAvailableGames } from '../services/multiplayerService';
+import { MultiplayerGame, GameSettings, AnonymousUser } from './types';
+import { createGame, joinGame, deleteGame, subscribeToAvailableGames } from './multiplayerService';
 import { Plus, Play, RefreshCw, User as UserIcon, X } from 'lucide-react';
 
 interface LobbyProps {
