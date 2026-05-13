@@ -15,8 +15,8 @@ import {
   orderBy,
   limit
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { MultiplayerGame, Color, ChatMessage } from '../types';
+import { db, handleFirestoreError, OperationType } from './firebase';
+import { MultiplayerGame, Color, ChatMessage } from './types';
 
 const GAMES_COLLECTION = 'games';
 const MESSAGES_SUBCOLLECTION = 'messages';
