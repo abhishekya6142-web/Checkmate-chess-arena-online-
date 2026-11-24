@@ -104,10 +104,13 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
     }
   }, [gameMode, multiplayerData, user?.uid, user?.displayName]);
 
-  // Timer logic
+  // Start the chess clock only after White makes the first legal move.
+  // Once started, only the player whose turn it is loses time.
+  const hasGameStarted = gameState.history.length > 0;
+
   useEffect(() => {
-    if (gameState.isGameOver) return;
-    
+    if (!hasGameStarted || gameState.isGameOver) return;
+
     const timer = setInterval(() => {
       if (gameState.turn === 'w') {
         setWhiteTime(t => Math.max(0, t - 1));
@@ -117,13 +120,15 @@ const GameInterface: React.FC<GameInterfaceProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState.turn, gameState.isGameOver]);
+  }, [hasGameStarted, gameState.turn, gameState.isGameOver]);
 
-  // Reset timers when settings change (new game)
+  // A fresh position with no moves means a new game: restore both clocks.
   useEffect(() => {
-    setWhiteTime(settings.timeControl * 60);
-    setBlackTime(settings.timeControl * 60);
-  }, [settings.timeControl, gameState.fen === settings.startingFen]);
+    if (gameState.history.length === 0) {
+      setWhiteTime(settings.timeControl * 60);
+      setBlackTime(settings.timeControl * 60);
+    }
+  }, [settings.timeControl, gameState.history.length]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
