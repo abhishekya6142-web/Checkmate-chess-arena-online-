@@ -88,17 +88,33 @@ const App: React.FC = () => {
 
   const handleSetupName = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tempName.trim()) return;
-    if (!auth.currentUser) return;
-    
     const displayName = tempName.trim();
+    if (!displayName) return;
+
+    // Auth can still be initializing when the user taps Start Playing.
+    let currentUser = auth.currentUser;
+    if (!currentUser) {
+      try {
+        const credential = await signInAnonymously(auth);
+        currentUser = credential.user;
+      } catch (error) {
+        console.error("[Profile Setup] Anonymous sign-in failed:", error);
+        alert("Connection issue. Please check your internet and try again.");
+        return;
+      }
+    }
+
     localStorage.setItem('player_name', displayName);
-    setUser({ uid: auth.currentUser.uid, displayName });
-    
-    // Sync to Firestore
-    await saveUserProfile(auth.currentUser.uid, displayName);
-    
+    setUser({ uid: currentUser.uid, displayName });
+    // Let the player enter the arena immediately. A Firestore write failure
+    // should not leave the Start Playing form stuck on screen.
     setIsSettingUpName(false);
+
+    try {
+      await saveUserProfile(currentUser.uid, displayName);
+    } catch (error) {
+      console.error("[Profile Setup] Profile sync failed:", error);
+    }
   };
 
   // Handle deep link room joining and state sync with URL
